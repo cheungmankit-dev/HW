@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>學生欠交功課紀錄表</title>
+    <style>
+        /* 基礎樣式保留 */
+        body {
+            font-family: "Microsoft JhengHei", Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 20px;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .section-card {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+            margin: 0 auto 20px auto;
+            width: 80%;
+        }
+        .controls, .manager-controls {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        select, button, input[type="text"] {
+            padding: 8px 12px;
+            font-size: 16px;
+            margin: 0 5px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        button {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2ecc71;
+        }
+        button.delete-btn {
+            background-color: #e74c3c;
+            padding: 2px 8px;
+            font-size: 12px;
+            margin-left: 5px;
+            border-radius: 3px;
+        }
+        button.delete-btn:hover {
+            background-color: #c0392b;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #bdc3c7;
+            padding: 12px;
+            text-align: center;
+        }
+        th {
+            background-color: #34495e;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        input[type="checkbox"] {
+            transform: scale(1.5);
+            cursor: pointer;
+        }
+        .tag {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            margin: 5px;
+            font-size: 14px;
+        }
+        .search-result {
+            margin-top: 15px;
+            text-align: left;
+            padding: 10px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>學生欠交功課紀錄表</h1>
+
+    <!-- 區塊 1：管理欠交項目 -->
+    <div class="section-card">
+        <h3 style="text-align: center; margin-top: 0;">1. 管理欠交項目</h3>
+        <div class="manager-controls">
+            <input type="text" id="newHwInput" placeholder="輸入功課名稱 (例如：中文作)">
+            <button onclick="addHwItem()">新增項目</button>
+        </div>
+        <div id="hwTags" style="text-align: center;">
+            <!-- 動態顯示目前的功課項目標籤 -->
+        </div>
+    </div>
+
+    <!-- 區塊 2：登記表格 -->
+    <div class="section-card">
+        <h3 style="text-align: center; margin-top: 0;">2. 點名與登記</h3>
+        <div class="controls">
+            <label for="classSelect">請選擇班別：</label>
+            <select id="classSelect" onchange="renderTable()">
+                <option value="1AB1">1AB1 班</option>
+                <option value="3AB3">3AB3 班</option>
+                <option value="3C">3C 班</option>
+            </select>
+            <button onclick="saveData()">儲存目前紀錄</button>
+            <span id="saveMessage" style="color: green; display: none; font-weight: bold;">✔ 已儲存</span>
+        </div>
+
+        <table id="studentTable">
+            <thead id="tableHead">
+                <!-- 表頭會由 JS 自動產生 -->
+            </thead>
+            <tbody id="tableBody">
+                <!-- 學生資料會由 JS 自動填入 -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 區塊 3：搜尋欠交情況 -->
+    <div class="section-card">
+        <h3 style="text-align: center; margin-top: 0;">3. 搜尋欠交名單</h3>
+        <div class="controls">
+            <label for="searchHwSelect">選擇功課：</label>
+            <select id="searchHwSelect">
+                <!-- 選項由 JS 自動填入 -->
+            </select>
+            <button onclick="searchMissingStudents()" style="background-color: #2980b9;">🔍 搜尋</button>
+        </div>
+        <div id="searchResults" class="search-result" style="display: none;">
+            <!-- 搜尋結果會顯示在這裡 -->
+        </div>
+    </div>
+
+    <script>
+        // 保留原有的學生資料庫
+        const studentsData = {
+            "1AB1": [
+                { class: "1A", no: 2, name: "陳文樂" }, { class: "1A", no: 3, name: "陳雅莉" },
+                { class: "1A", no: 6, name: "周倬緣" }, { class: "1A", no: 8, name: "岑郁澄" },
+                { class: "1A", no: 10, name: "關伊澄" }, { class: "1A", no: 15, name: "劉洛瑤" },
+                { class: "1A", no: 17, name: "李淡桐" }, { class: "1A", no: 23, name: "潘倬悠" },
+                { class: "1A", no: 26, name: "譚傑允" }, { class: "1A", no: 29, name: "汪美汐" },
+                { class: "1A", no: 33, name: "曾愉茵" },
+                { class: "1B", no: 5, name: "趙方廷" }, { class: "1B", no: 6, name: "周芸樂" },
+                { class: "1B", no: 8, name: "方芷晴" }, { class: "1B", no: 11, name: "郭萬熙" },
+                { class: "1B", no: 12, name: "林川" }, { class: "1B", no: 15, name: "藍天昊" },
+                { class: "1B", no: 18, name: "梁嘉諾" }, { class: "1B", no: 19, name: "劉美琪" },
+                { class: "1B", no: 20, name: "盧柏蕎" }, { class: "1B", no: 25, name: "蘇苡喬" },
+                { class: "1B", no: 26, name: "曹宸銘" }, { class: "1B", no: 29, name: "黃梓言" },
+                { class: "1B", no: 30, name: "楊欣渝" }
+            ],
+            "3AB3": [
+                { class: "3A", no: 2, name: "陳映瞳" }, { class: "3A", no: 6, name: "張漪婷" },
+                { class: "3A", no: 8, name: "蔡卓彤" }, { class: "3A", no: 14, name: "羅兆庭" },
+                { class: "3A", no: 15, name: "李志誠" }, { class: "3A", no: 20, name: "鮑天悅" },
+                { class: "3A", no: 21, name: "蘇康傑" }, { class: "3A", no: 25, name: "謝穎朗" },
+                { class: "3A", no: 30, name: "顏瑋樂" },
+                { class: "3B", no: 1, name: "陳詩程" }, { class: "3B", no: 3, name: "朱煒澄" },
+                { class: "3B", no: 5, name: "鍾汶軒" }, { class: "3B", no: 13, name: "李溢賢" },
+                { class: "3B", no: 21, name: "冼澤霖" }, { class: "3B", no: 27, name: "黃俊然" },
+                { class: "3B", no: 29, name: "葉宇明" }, { class: "3B", no: 32, name: "張雅瀅" }
+            ],
+            "3C": [
+                { class: "3C", no: 1, name: "陳咯同" }, { class: "3C", no: 2, name: "陳柏諾" },
+                { class: "3C", no: 3, name: "陳思媛" }, { class: "3C", no: 4, name: "陳逸朗" },
+                { class: "3C", no: 5, name: "鄭向晴" }, { class: "3C", no: 6, name: "朱麗寧" },
+                { class: "3C", no: 7, name: "徐耀康" }, { class: "3C", no: 8, name: "鍾曉彤" },
+                { class: "3C", no: 9, name: "郭早欣" }, { class: "3C", no: 10, name: "賴穎妍" },
+                { class: "3C", no: 11, name: "李卓璇" }, { class: "3C", no: 12, name: "李柏謙" },
+                { class: "3C", no: 13, name: "梁巧欣" }, { class: "3C", no: 14, name: "劉浩天" },
+                { class: "3C", no: 15, name: "劉譯聰" }, { class: "3C", no: 16, name: "羅凱爍" },
+                { class: "3C", no: 17, name: "吳卓蔚" }, { class: "3C", no: 18, name: "吳子謙" },
+                { class: "3C", no: 19, name: "伍芷穎" }, { class: "3C", no: 20, name: "吳昕桐" },
+                { class: "3C", no: 21, name: "蕭駿宇" }, { class: "3C", no: 22, name: "蘇綺喬" },
+                { class: "3C", no: 23, name: "索浩洋" }, { class: "3C", no: 24, name: "譚梓瑩" },
+                { class: "3C", no: 25, name: "鄧正忻" }, { class: "3C", no: 26, name: "譚子豪" },
+                { class: "3C", no: 27, name: "童若宸" }, { class: "3C", no: 28, name: "魏智盛" },
+                { class: "3C", no: 29, name: "黃子恩" }, { class: "3C", no: 30, name: "葉煒濠" },
+                { class: "3C", no: 31, name: "袁凱嵐" }
+            ]
+        };
+
+        // 【修改點】將預設陣列改為空陣列 []，並更改 localStorage 金鑰為 'hwItemsList_v2' 確保重新開始
+        let hwItems = JSON.parse(localStorage.getItem('hwItemsList_v2')) || [];
+
+        // 初始化網頁
+        window.onload = () => {
+            updateHwUI();
+            renderTable();
+        };
+
+        // 更新功課項目相關的 UI（標籤與搜尋選單）
+        function updateHwUI() {
+            const tagsContainer = document.getElementById("hwTags");
+            const searchSelect = document.getElementById("searchHwSelect");
+            
+            tagsContainer.innerHTML = "";
+            searchSelect.innerHTML = '<option value="">請選擇...</option>';
+
+            hwItems.forEach((item, index) => {
+                tagsContainer.innerHTML += `
+                    <span class="tag">
+                        ${item} 
+                        <button class="delete-btn" onclick="deleteHwItem(${index})">X</button>
+                    </span>
+                `;
+                searchSelect.innerHTML += `<option value="${item}">${item}</option>`;
+            });
+        }
+
+        // 新增功課項目
+        function addHwItem() {
+            const input = document.getElementById("newHwInput");
+            const newItem = input.value.trim();
+            if (newItem && !hwItems.includes(newItem)) {
+                hwItems.push(newItem);
+                localStorage.setItem('hwItemsList_v2', JSON.stringify(hwItems)); // 儲存到新金鑰
+                input.value = ""; 
+                updateHwUI();
+                renderTable(); 
+            } else if (hwItems.includes(newItem)) {
+                alert("此項目已存在！");
+            }
+        }
+
+        // 刪除功課項目
+        function deleteHwItem(index) {
+            if(confirm(`確定要刪除「${hwItems[index]}」嗎？這不會刪除已登記的紀錄，但表格將不再顯示該欄位。`)) {
+                hwItems.splice(index, 1);
+                localStorage.setItem('hwItemsList_v2', JSON.stringify(hwItems)); // 儲存到新金鑰
+                updateHwUI();
+                renderTable();
+            }
+        }
+
+        // 渲染動態表格
+        function renderTable() {
+            const selectedClass = document.getElementById("classSelect").value;
+            const tableHead = document.getElementById("tableHead");
+            const tableBody = document.getElementById("tableBody");
+            
+            let headHTML = `<tr><th>班別</th><th>班號</th><th>學生姓名</th>`;
+            hwItems.forEach(item => {
+                headHTML += `<th>${item}</th>`;
+            });
+            headHTML += `</tr>`;
+            tableHead.innerHTML = headHTML;
+
+            tableBody.innerHTML = ""; 
+            const students = studentsData[selectedClass];
+            // 【修改點】更改打勾紀錄的儲存金鑰為 'hwRecords_v2' 配合全新的開始
+            const savedData = JSON.parse(localStorage.getItem('hwRecords_v2')) || {};
+
+            students.forEach(student => {
+                const tr = document.createElement("tr");
+                const studentId = student.class + "_" + student.no;
+                
+                let rowHTML = `
+                    <td>${student.class}</td>
+                    <td>${student.no}</td>
+                    <td>${student.name}</td>
+                `;
+
+                hwItems.forEach(item => {
+                    const uniqueCheckboxId = `${studentId}_${item}`;
+                    const isChecked = savedData[uniqueCheckboxId] ? "checked" : "";
+                    rowHTML += `<td><input type="checkbox" id="${uniqueCheckboxId}" class="hw-checkbox" ${isChecked}></td>`;
+                });
+
+                tr.innerHTML = rowHTML;
+                tableBody.appendChild(tr);
+            });
+        }
+
+        // 儲存紀錄的函數
+        function saveData() {
+            const checkboxes = document.querySelectorAll('.hw-checkbox');
+            const savedData = JSON.parse(localStorage.getItem('hwRecords_v2')) || {};
+
+            checkboxes.forEach(box => {
+                savedData[box.id] = box.checked;
+            });
+
+            localStorage.setItem('hwRecords_v2', JSON.stringify(savedData));
+            
+            const msg = document.getElementById("saveMessage");
+            msg.style.display = "inline";
+            setTimeout(() => { msg.style.display = "none"; }, 2000);
+        }
+
+        // 搜尋欠交名單的函數
+        function searchMissingStudents() {
+            const targetHw = document.getElementById("searchHwSelect").value;
+            const resultDiv = document.getElementById("searchResults");
+            
+            if (!targetHw) {
+                alert("請先選擇要搜尋的功課項目！");
+                return;
+            }
+
+            const savedData = JSON.parse(localStorage.getItem('hwRecords_v2')) || {};
+            let resultHTML = `<h4 style="margin-top:0;">「${targetHw}」欠交名單：</h4><ul>`;
+            let hasMissing = false;
+
+            for (const classKey in studentsData) {
+                let classMissingNames = [];
+                studentsData[classKey].forEach(student => {
+                    const studentId = student.class + "_" + student.no;
+                    const checkboxId = `${studentId}_${targetHw}`;
+                    if (savedData[checkboxId]) {
+                        classMissingNames.push(`${student.class}${student.no} ${student.name}`);
+                        hasMissing = true;
+                    }
+                });
+                
+                if (classMissingNames.length > 0) {
+                    resultHTML += `<li><strong>${classKey}班</strong>: ${classMissingNames.join(', ')}</li>`;
+                }
+            }
+
+            if (!hasMissing) {
+                resultHTML += `<li>太棒了！沒有學生欠交此項目。</li>`;
+            }
+
+            resultHTML += `</ul>`;
+            resultDiv.innerHTML = resultHTML;
+            resultDiv.style.display = "block";
+        }
+    </script>
+</body>
+</html>
