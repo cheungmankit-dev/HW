@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雲端同步版 - 學生欠交功課紀錄表</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", Arial, sans-serif; background-color: #f4f7f6; margin: 20px; color: #333; }
+        h1 { text-align: center; color: #2c3e50; }
+        .section-card { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.05); margin: 0 auto 20px auto; width: 80%; }
+        .controls, .manager-controls { text-align: center; margin-bottom: 15px; }
+        select, button, input[type="text"] { padding: 8px 12px; font-size: 16px; margin: 0 5px; border-radius: 5px; border: 1px solid #ccc; }
+        button { background-color: #27ae60; color: white; border: none; cursor: pointer; transition: background-color 0.3s; }
+        button:hover { background-color: #2ecc71; }
+        button.delete-btn { background-color: #e74c3c; padding: 2px 8px; font-size: 12px; margin-left: 5px; border-radius: 3px; }
+        button.delete-btn:hover { background-color: #c0392b; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #bdc3c7; padding: 12px; text-align: center; }
+        th { background-color: #34495e; color: white; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        input[type="checkbox"] { transform: scale(1.5); cursor: pointer; }
+        .tag { display: inline-block; background-color: #3498db; color: white; padding: 5px 10px; border-radius: 15px; margin: 5px; font-size: 14px; }
+        .search-result { margin-top: 15px; text-align: left; padding: 10px; background-color: #ecf0f1; border-radius: 5px; }
+        .class-badge { background-color: #f39c12; color: white; padding: 3px 8px; border-radius: 5px; font-size: 14px; margin-bottom: 10px; display: inline-block; }
+        
+        /* 載入中遮罩樣式 */
+        #loadingOverlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.8); display: flex;
+            flex-direction: column; justify-content: center; align-items: center;
+            z-index: 1000; font-size: 20px; font-weight: bold; color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 載入中畫面，防止資料還沒抓下來時操作 -->
+    <div id="loadingOverlay">
+        <p>🔄 正在與雲端同步資料中，請稍候...</p>
+    </div>
+
+    <h1>學生欠交功課紀錄表 (雲端同步版)</h1>
+
+    <div class="controls">
+        <label for="classSelect"><strong>目前選擇班別：</strong></label>
+        <select id="classSelect" onchange="switchClass()" style="font-weight: bold; background-color: #e8f6f3;">
+            <option value="1AB1">1AB1 班</option>
+            <option value="3AB3">3AB3 班</option>
+            <option value="3C">3C 班</option>
+        </select>
+        <button id="saveBtn" onclick="saveDataToCloud()">上傳儲存至雲端</button>
+        <span id="saveMessage" style="color: green; display: none; font-weight: bold;">✔ 已儲存到雲端</span>
+    </div>
+
+    <!-- 區塊 1：管理欠交項目 -->
+    <div class="section-card">
+        <h3 style="text-align: center; margin-top: 0;">1. 管理此班級的欠交項目</h3>
+        <div style="text-align: center;"><span id="currentClassTag1" class="class-badge">1AB1</span></div>
+        <div class="manager-controls">
+            <input type="text" id="newHwInput" placeholder="輸入功課名稱">
+            <button onclick="addHwItem()">新增項目</button>
+        </div>
+        <div id="hwTags" style="text-align: center;"></div>
+    </div>
+
+    <!-- 區塊 2：登記表格 -->
+    <div class="section-card">
+        <h3 style="text-align: center; margin-top: 0;">2. 點名與登記</h3>
+        <div style="text-align: center;"><span id="currentClassTag2" class="class-badge">1AB1</span></div>
+        <table id="studentTable">
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+
+    <!-- 區塊 3：搜尋欠交情況 -->
+    <div class="section-card">
+        <h3 style="text-align: center; margin-top: 0;">3. 搜尋此班級的欠交名單</h3>
+        <div style="text-align: center;"><span id="currentClassTag3" class="class-badge">1AB1</span></div>
+        <div class="controls">
+            <label for="searchHwSelect">選擇功課：</label>
+            <select id="searchHwSelect"></select>
+            <button onclick="searchMissingStudents()" style="background-color: #2980b9;">🔍 搜尋</button>
+        </div>
+        <div id="searchResults" class="search-result" style="display: none;"></div>
+    </div>
+
+    <script>
+        // ----------------------------------------------------
+        // ⭐ 你的 Google Apps Script 雲端資料庫網址
+        // ----------------------------------------------------
+        const GOOGLE_API_URL = "https://script.google.com/macros/s/AKfycbxBmbObujLdNAv_Uc0ycdw4OCo9IF7MW_IgkkJL_kp3yieRV0kFgoskm6cXbXr_NK4Isg/exec"; 
+
+        // 本地暫存的雲端資料容器
+        let cloudData = {
+            classHwItems: { "1AB1": [], "3AB3": [], "3C": [] },
+            hwRecords: {}
+        };
+
+        const studentsData = {
+            "1AB1": [
+                { class: "1A", no: 2, name: "陳文樂" }, { class: "1A", no: 3, name: "陳雅莉" },
+                { class: "1A", no: 6, name: "周倬緣" }, { class: "1A", no: 8, name: "岑郁澄" },
+                { class: "1A", no: 10, name: "關伊澄" }, { class: "1A", no: 15, name: "劉洛瑤" },
+                { class: "1A", no: 17, name: "李淡桐" }, { class: "1A", no: 23, name: "潘倬悠" },
+                { class: "1A", no: 26, name: "譚傑允" }, { class: "1A", no: 29, name: "汪美汐" },
+                { class: "1A", no: 33, name: "曾愉茵" },
+                { class: "1B", no: 5, name: "趙方廷" }, { class: "1B", no: 6, name: "周芸樂" },
+                { class: "1B", no: 8, name: "方芷晴" }, { class: "1B", no: 11, name: "郭萬熙" },
+                { class: "1B", no: 12, name: "林川" }, { class: "1B", no: 15, name: "藍天昊" },
+                { class: "1B", no: 18, name: "梁嘉諾" }, { class: "1B", no: 19, name: "劉美琪" },
+                { class: "1B", no: 20, name: "盧柏蕎" }, { class: "1B", no: 25, name: "蘇苡喬" },
+                { class: "1B", no: 26, name: "曹宸銘" }, { class: "1B", no: 29, name: "黃梓言" },
+                { class: "1B", no: 30, name: "楊欣渝" }
+            ],
+            "3AB3": [
+                { class: "3A", no: 2, name: "陳映瞳" }, { class: "3A", no: 6, name: "張漪婷" },
+                { class: "3A", no: 8, name: "蔡卓彤" }, { class: "3A", no: 14, name: "羅兆庭" },
+                { class: "3A", no: 15, name: "李志誠" }, { class: "3A", no: 20, name: "鮑天悅" },
+                { class: "3A", no: 21, name: "蘇康傑" }, { class: "3A", no: 25, name: "謝穎朗" },
+                { class: "3A", no: 30, name: "顏瑋樂" },
+                { class: "3B", no: 1, name: "陳詩程" }, { class: "3B", no: 3, name: "朱煒澄" },
+                { class: "3B", no: 5, name: "鍾汶軒" }, { class: "3B", no: 13, name: "李溢賢" },
+                { class: "3B", no: 21, name: "冼澤霖" }, { class: "3B", no: 27, name: "黃俊然" },
+                { class: "3B", no: 29, name: "葉宇明" }, { class: "3B", no: 32, name: "張雅瀅" }
+            ],
+            "3C": [
+                { class: "3C", no: 1, name: "陳咯同" }, { class: "3C", no: 2, name: "陳柏諾" },
+                { class: "3C", no: 3, name: "陳思媛" }, { class: "3C", no: 4, name: "陳逸朗" },
+                { class: "3C", no: 5, name: "鄭向晴" }, { class: "3C", no: 6, name: "朱麗寧" },
+                { class: "3C", no: 7, name: "徐耀康" }, { class: "3C", no: 8, name: "鍾曉彤" },
+                { class: "3C", no: 9, name: "郭早欣" }, { class: "3C", no: 10, name: "賴穎妍" },
+                { class: "3C", no: 11, name: "李卓璇" }, { class: "3C", no: 12, name: "李柏謙" },
+                { class: "3C", no: 13, name: "梁巧欣" }, { class: "3C", no: 14, name: "劉浩天" },
+                { class: "3C", no: 15, name: "劉譯聰" }, { class: "3C", no: 16, name: "羅凱爍" },
+                { class: "3C", no: 17, name: "吳卓蔚" }, { class: "3C", no: 18, name: "吳子謙" },
+                { class: "3C", no: 19, name: "伍芷穎" }, { class: "3C", no: 20, name: "吳昕桐" },
+                { class: "3C", no: 21, name: "蕭駿宇" }, { class: "3C", no: 22, name: "蘇綺喬" },
+                { class: "3C", no: 23, name: "索浩洋" }, { class: "3C", no: 24, name: "譚梓瑩" },
+                { class: "3C", no: 25, name: "鄧正忻" }, { class: "3C", no: 26, name: "譚子豪" },
+                { class: "3C", no: 27, name: "童若宸" }, { class: "3C", no: 28, name: "魏智盛" },
+                { class: "3C", no: 29, name: "黃子恩" }, { class: "3C", no: 30, name: "葉煒濠" },
+                { class: "3C", no: 31, name: "袁凱嵐" }
+            ]
+        };
+
+        // 網頁載入時，先從 Google 雲端抓取資料
+        window.onload = async () => {
+            if (GOOGLE_API_URL === "YOUR_GOOGLE_SCRIPT_URL_HERE") {
+                alert("⚠️ 請先將原始碼中的 GOOGLE_API_URL 替換為你的 Google Apps Script 網址！");
+                document.getElementById("loadingOverlay").style.display = "none";
+                return;
+            }
+
+            try {
+                const response = await fetch(GOOGLE_API_URL);
+                const fetchedData = await response.json();
+                
+                // 確保雲端抓下來的資料結構完整
+                if(fetchedData && fetchedData.classHwItems) {
+                    cloudData = fetchedData;
+                }
+            } catch (error) {
+                console.error("載入資料失敗:", error);
+                alert("無法連線至雲端，將開啟空白表單。");
+            }
+            
+            document.getElementById("loadingOverlay").style.display = "none";
+            switchClass();
+        };
+
+        function switchClass() {
+            const selectedClass = document.getElementById("classSelect").value;
+            document.getElementById("currentClassTag1").innerText = selectedClass;
+            document.getElementById("currentClassTag2").innerText = selectedClass;
+            document.getElementById("currentClassTag3").innerText = selectedClass;
+            document.getElementById("searchResults").style.display = "none";
+            document.getElementById("newHwInput").value = "";
+            updateHwUI();
+            renderTable();
+        }
+
+        function updateHwUI() {
+            const selectedClass = document.getElementById("classSelect").value;
+            // 確保該班級的陣列存在
+            if (!cloudData.classHwItems[selectedClass]) cloudData.classHwItems[selectedClass] = [];
+            const currentHwItems = cloudData.classHwItems[selectedClass]; 
+
+            const tagsContainer = document.getElementById("hwTags");
+            const searchSelect = document.getElementById("searchHwSelect");
+            tagsContainer.innerHTML = "";
+            searchSelect.innerHTML = '<option value="">請選擇...</option>';
+
+            currentHwItems.forEach((item, index) => {
+                tagsContainer.innerHTML += `<span class="tag">${item} <button class="delete-btn" onclick="deleteHwItem(${index})">X</button></span>`;
+                searchSelect.innerHTML += `<option value="${item}">${item}</option>`;
+            });
+        }
+
+        // 新增項目時，不直接存到瀏覽器，而是更新變數，並提示要上傳
+        function addHwItem() {
+            const selectedClass = document.getElementById("classSelect").value;
+            const input = document.getElementById("newHwInput");
+            const newItem = input.value.trim();
+            const currentHwItems = cloudData.classHwItems[selectedClass];
+
+            if (newItem && !currentHwItems.includes(newItem)) {
+                currentHwItems.push(newItem);
+                input.value = ""; 
+                updateHwUI();
+                renderTable(); 
+            } else if (currentHwItems.includes(newItem)) {
+                alert("此項目已存在！");
+            }
+        }
+
+        function deleteHwItem(index) {
+            const selectedClass = document.getElementById("classSelect").value;
+            const currentHwItems = cloudData.classHwItems[selectedClass];
+            if(confirm(`確定要刪除「${currentHwItems[index]}」嗎？(刪除後記得按儲存上傳雲端)`)) {
+                currentHwItems.splice(index, 1);
+                updateHwUI();
+                renderTable();
+            }
+        }
+
+        function renderTable() {
+            const selectedClass = document.getElementById("classSelect").value;
+            const currentHwItems = cloudData.classHwItems[selectedClass];
+            const tableHead = document.getElementById("tableHead");
+            const tableBody = document.getElementById("tableBody");
+            
+            let headHTML = `<tr><th>班別</th><th>班號</th><th>學生姓名</th>`;
+            currentHwItems.forEach(item => headHTML += `<th>${item}</th>`);
+            headHTML += `</tr>`;
+            tableHead.innerHTML = headHTML;
+            tableBody.innerHTML = ""; 
+            
+            const students = studentsData[selectedClass];
+            students.forEach(student => {
+                const tr = document.createElement("tr");
+                const studentId = student.class + "_" + student.no;
+                let rowHTML = `<td>${student.class}</td><td>${student.no}</td><td>${student.name}</td>`;
+                currentHwItems.forEach(item => {
+                    const uniqueCheckboxId = `${studentId}_${item}`;
+                    const isChecked = cloudData.hwRecords[uniqueCheckboxId] ? "checked" : "";
+                    rowHTML += `<td><input type="checkbox" id="${uniqueCheckboxId}" class="hw-checkbox" ${isChecked} onchange="updateLocalRecord(this)"></td>`;
+                });
+                tr.innerHTML = rowHTML;
+                tableBody.appendChild(tr);
+            });
+        }
+
+        // 每次打勾時，先更新本地的變數
+        function updateLocalRecord(checkbox) {
+            cloudData.hwRecords[checkbox.id] = checkbox.checked;
+        }
+
+        // ⭐ 核心功能：上傳資料到 Google 雲端
+        async function saveDataToCloud() {
+            const saveBtn = document.getElementById("saveBtn");
+            saveBtn.innerText = "上傳中...";
+            saveBtn.disabled = true;
+
+            try {
+                // 將所有資料整合成字串發送給 API
+                await fetch(GOOGLE_API_URL, {
+                    method: "POST",
+                    body: JSON.stringify(cloudData)
+                });
+                
+                const msg = document.getElementById("saveMessage");
+                msg.style.display = "inline";
+                setTimeout(() => { msg.style.display = "none"; }, 3000);
+            } catch (error) {
+                console.error("儲存失敗:", error);
+                alert("上傳失敗，請檢查網路連線。");
+            }
+
+            saveBtn.innerText = "上傳儲存至雲端";
+            saveBtn.disabled = false;
+        }
+
+        function searchMissingStudents() {
+            const selectedClass = document.getElementById("classSelect").value;
+            const targetHw = document.getElementById("searchHwSelect").value;
+            const resultDiv = document.getElementById("searchResults");
+            
+            if (!targetHw) return alert("請先選擇要搜尋的功課項目！");
+
+            let resultHTML = `<h4 style="margin-top:0;">「${targetHw}」欠交名單 (${selectedClass})：</h4><ul>`;
+            let hasMissing = false;
+
+            studentsData[selectedClass].forEach(student => {
+                const studentId = student.class + "_" + student.no;
+                if (cloudData.hwRecords[`${studentId}_${targetHw}`]) {
+                    resultHTML += `<li>${student.class}${student.no} ${student.name}</li>`;
+                    hasMissing = true;
+                }
+            });
+
+            if (!hasMissing) resultHTML += `<li>本班沒有學生欠交此項目。</li>`;
+            resultDiv.innerHTML = resultHTML + `</ul>`;
+            resultDiv.style.display = "block";
+        }
+    </script>
+</body>
+</html>
